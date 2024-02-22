@@ -66,6 +66,24 @@ MPI_Datatype type_speed;
 struct parameters params;
 struct ctx ctx;
 
+void print_fish(struct fish f){
+    printf("%d-Fish:%ld       Position:%fx   %fy   %fz\n",ctx.my_rank,f.id,f.x,f.y,f.z);
+    printf("%d-active:%d   size:%d    eating:%d",ctx.my_rank,f.active,f.size,f.eating);
+}
+
+void print_local(){
+    struct node* c = ctx.fishes->next;
+    while(c!=NULL){
+        print_fish(*c->fish);
+        c = c->next;
+    }
+}
+
+void print_array(struct fish* f, int size){
+    for(int i=0;i<size;i++)
+        print_fish(f[i]);
+}
+
 //calculate the distance between two fishes
 double distance(struct fish* f1,struct fish* f2){
     double x,y,z,res;
@@ -124,6 +142,7 @@ struct node* add(struct fish f, struct node* list){
         if(f.size > current->fish->size){
             //if fish is bigger in size then the one in current node
             //put it in front of the current node
+            to_add->fish = malloc(sizeof(struct fish));
             *to_add->fish = f;
             to_add->next = current;
             to_add->prev = prev;
@@ -136,6 +155,7 @@ struct node* add(struct fish f, struct node* list){
         current = current->next;
     }
     prev->next = to_add;
+    to_add->fish = malloc(sizeof(struct fish));
     to_add->head = list->head;
     *to_add->fish = f;
     to_add->prev = prev;
@@ -392,6 +412,9 @@ void move_step(){
         indexes[i] = 0;
     }
     
+    //DEBUG
+    print_local();
+
     //for each fish move it and check in which slice it ended up
     //if it ended up in a slice different from the local one 
     //move it to the array that will be sent to the process responsable
@@ -411,6 +434,11 @@ void move_step(){
             continue;
         }
         current = current->next;
+    }
+
+    for(int i=0;i<ctx.world_size;i++){
+        printf("%d-sending after move:\n",ctx.my_rank);
+        print_array(to_send[i],indexes[i]);
     }
 
     //send the to_send arrays to the others
@@ -476,11 +504,10 @@ void make_step(){
 
     move_step();
     eating_step();
-    //grow_step();
+
 }
 
-double randfrom(double min, double max) 
-{
+double randfrom(double min, double max){
     double range = (max - min); 
     double div = RAND_MAX / range;
     return min + (rand() / div);
