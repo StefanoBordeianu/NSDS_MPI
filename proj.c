@@ -67,8 +67,7 @@ struct parameters params;
 struct ctx ctx;
 
 void print_fish(struct fish f){
-    printf("%d-Fish:%ld       Position:%fx   %fy   %fz\n",ctx.my_rank,f.id,f.x,f.y,f.z);
-    printf("%d-active:%d   size:%d    eating:%d\n",ctx.my_rank,f.active,f.size,f.eating);
+    printf("%d-Fish:%ld       Position:%fx   %fy   %fz      active:%d   size:%d    eating:%d\n",ctx.my_rank,f.id,f.x,f.y,f.z,f.active,f.size,f.eating);
 }
 
 void print_local(){
