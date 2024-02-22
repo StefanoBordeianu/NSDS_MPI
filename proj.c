@@ -441,16 +441,14 @@ void move_step(){
             printf("%d-D2\n",ctx.my_rank);
             continue;
         }
-        if(current==NULL) printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
+        if(current==NULL) printf("%d-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",ctx.my_rank);
         printf("%d-E\n",ctx.my_rank);
         current = current->next;
         printf("%d-E2\n",ctx.my_rank);
     }
-    if(current==NULL) printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
-
 
     for(int i=0;i<ctx.world_size;i++){
-        printf("%d-sending after move:\n",ctx.my_rank);
+        printf("%d-sending after move: index:%d\n",ctx.my_rank,indexes[i]);
         print_array(to_send[i],indexes[i]);
     }
 
