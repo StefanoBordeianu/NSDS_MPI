@@ -113,7 +113,7 @@ void move_fish(struct fish* f){
     }
 
     if(f->y >= params.edge_size){
-        f->y = params.edge_size;
+        f->y = (float)params.edge_size-0.001;
         f->speed.y = f->speed.y * -1;
     }
     if(f->y <= 0){
@@ -373,7 +373,7 @@ void eating_step(){
 
 //returns the slice resposable for the position of the fish
 int get_slice_from_position(struct fish* f){
-    double slice_size = params.edge_size/ctx.world_size;
+    double slice_size = (float) params.edge_size/ctx.world_size;
     return (int)(f->y/slice_size);
 }
 
