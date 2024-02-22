@@ -403,7 +403,7 @@ void move_step(){
     struct fish* to_send[ctx.world_size];
     int indexes[ctx.world_size];
     int sizes[ctx.world_size];
-    int starting_size = 200;
+    int starting_size = 20;
 
     for(int i=0; i<ctx.world_size; i++){
         to_send[i] = malloc(starting_size*sizeof(struct fish));
@@ -421,11 +421,13 @@ void move_step(){
     //for that slice. The arrays are basically like Java arrayList
     while(current != NULL){
         int slice;
-
+        printf("A\n");
         move_fish(current->fish);
+        printf("B\n");
         slice = get_slice_from_position(current->fish);
         if(slice != ctx.my_rank){
             add_to_slice(current->fish, &indexes[slice], to_send[slice]);
+            printf("C\n");
             if(indexes[slice]==sizes[slice])
                 expand(slice,to_send,sizes);
             struct node* to_remove = current;
