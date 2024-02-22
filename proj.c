@@ -5,6 +5,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <getopt.h>
+#include "../../../usr/lib/x86_64-linux-gnu/openmpi/include/mpi.h"
 
 struct speed{
     double x;
@@ -83,7 +84,7 @@ void move_fish(struct fish* f){
 
     //CHECKING BOUNDRIES
     //if a boundry is crossed then position set at the boundry 
-    //of the dimention and the speedis reversed for that axis
+    //of the dimention and the speed is reversed on that axis
 
     if(f->x >= params.edge_size){
         f->x = params.edge_size;
@@ -205,6 +206,24 @@ void send_neighbor(){
     MPI_Waitall(j,req,stats);
 }
 
+void send_adj(){
+    MPI_Request req[ctx.number_of_neighbors];
+    struct fish* to_send;
+
+    //we first send the len of the buffer then the buffer
+
+    int j = 0;
+    for(int i = 0;i<ctx.number_of_neighbors;i++){
+            int rank = ctx.neighbor_ranks[i];
+            MPI_Isend(ctx.adjacent_sizes[rank],1, MPI_INT, rank , 0, MPI_COMM_WORLD, req[j]);
+            j++;
+            MPI_Isend(ctx.adjacent_list[rank],ctx.adjacent_sizes[rank], type_fish, rank , 0, MPI_COMM_WORLD, req[j]);
+            j++;
+    }
+    MPI_Status stats[j];
+    MPI_Waitall(j,req,stats);
+}
+
 int recv_neighbor(){
 
     MPI_Request req[ctx.adjacent_to_consider];
@@ -231,6 +250,39 @@ int recv_neighbor(){
     }
     MPI_Status stats[j];
     MPI_Waitall(j,req,stats);
+}
+
+void merge_neighbors(){
+
+    struct node* cycle_local;
+
+    for(int i = 0;i<ctx.number_of_neighbors;i++){
+        int rank = ctx.neighbor_ranks[i]; 
+        cycle_local = ctx.fishes;
+
+        for (int j = 0; j<ctx.adjacent_sizes[rank]; j++){
+            if(ctx.adjacent_list[rank][j].id != cycle_local->fish->id)
+                printf("MISSMATCH ID ERROR\n");
+
+            cycle_local->fish->eating += ctx.adjacent_list[rank][j].eating;
+            cycle_local = cycle_local->next; 
+        }
+    }
+
+    cycle_local = ctx.fishes;
+    while(cycle_local!=NULL){
+        cycle_local->fish->size += cycle_local->fish->eating;
+        if(!cycle_local->fish->active){
+            struct node* to_remove = cycle_local;
+            cycle_local = cycle_local->next;
+            remove_node(to_remove);
+        }
+        else{
+            cycle_local = cycle_local->next;
+        }
+
+    }
+
 }
 
 void eating_step(){
@@ -294,6 +346,10 @@ void eating_step(){
     for(int i = 0;i<ctx.number_of_neighbors;i++)
         free(ctx.adjacent_list[ctx.neighbor_ranks[i]]);
     recv_neighbor();
+    merge_neighbors();
+    //free adjacent list
+    for(int i = 0;i<ctx.number_of_neighbors;i++)
+        free(ctx.adjacent_list[ctx.neighbor_ranks[i]]);
 }
 
 //returns the slice resposable for the position of the fish
@@ -333,6 +389,7 @@ void move_step(){
     for(int i=0; i<ctx.world_size; i++){
         to_send[i] = malloc(starting_size*sizeof(struct fish));
         sizes[i] = starting_size;
+        indexes[i] = 0;
     }
     
     //for each fish move it and check in which slice it ended up
@@ -357,10 +414,62 @@ void move_step(){
     }
 
     //send the to_send arrays to the others
+    MPI_Request send_req[ctx.world_size*2];
+    int j=0;
+    for(int i=0;i<ctx.world_size;i++){
+        //we skip our own rank
+        if(i==ctx.my_rank)
+            continue;
+        MPI_Isend(&indexes[i] , 1 , MPI_INT , i , 0 , MPI_COMM_WORLD , send_req[j]);
+        j++;
+        MPI_Isend(&to_send[i] , indexes[i] , type_fish , i , 0 , MPI_COMM_WORLD , send_req[j]);
+        j++;
+    }
+    MPI_Status stats[j];
+    MPI_Waitall(j,send_req,stats);
 
     //receive the arrays from the other 
+    MPI_Request recv_req[ctx.world_size];
+    j=0;
+    struct fish* to_recv[ctx.world_size];
+    int to_recv_sizes[ctx.world_size];
+    for(int i=0;i<ctx.world_size;i++){
+        //we skip our own rank
+        if(i==ctx.my_rank)
+            continue;
+        MPI_Irecv(&to_recv_sizes[i],1 , MPI_INT , i , 0 , MPI_COMM_WORLD , recv_req[j]);
+        j++;
+    }
+    MPI_Status stats[j];
+    MPI_Waitall(j,send_req,stats);
 
+
+    for(int i=0;i<ctx.world_size;i++){
+        //we skip our own rank
+        if(i==ctx.my_rank)
+            continue;
+        to_recv[i] = malloc(sizeof(struct fish) * to_recv_sizes[i]);
+    }
+
+    j=0;
+    for(int i=0;i<ctx.world_size;i++){
+        //we skip our own rank
+        if(i==ctx.my_rank)
+            continue;
+        MPI_Irecv(&to_recv[i],to_recv_sizes[i],type_fish, i , 0 , MPI_COMM_WORLD , recv_req[j]);
+        j++;
+    }
+    MPI_Status stats[j];
+    MPI_Waitall(j,send_req,stats);
+    
     //put the fishes received in the ctx.fishes list
+    for(int i=0;i<ctx.world_size;i++){
+        for(j=0;j<to_recv_sizes[i];j++){
+            add(to_recv[i][j],ctx.fishes);
+        }
+        free(to_recv[i]);
+        free(to_send[i]);
+    }
 }
 
 void make_step(){
