@@ -425,10 +425,12 @@ void move_step(){
         move_fish(current->fish);
         printf("%d-B\n",ctx.my_rank);
         slice = get_slice_from_position(current->fish);
-        printf("%d-B2\n",ctx.my_rank);
+        printf("%d-B2   slice:%d\n",ctx.my_rank,slice);
         if(slice != ctx.my_rank){
             printf("%d-C\n",ctx.my_rank);
+
             add_to_slice(current->fish, &indexes[slice], to_send[slice]);
+
             printf("%d-C2\n",ctx.my_rank);
             if(indexes[slice]==sizes[slice])
                 expand(slice,to_send,sizes);
@@ -444,6 +446,8 @@ void move_step(){
         current = current->next;
         printf("%d-E2\n",ctx.my_rank);
     }
+    if(current==NULL) printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
+
 
     for(int i=0;i<ctx.world_size;i++){
         printf("%d-sending after move:\n",ctx.my_rank);
