@@ -447,6 +447,8 @@ void move_step(){
         printf("%d-E2\n",ctx.my_rank);
     }
 
+    MPI_Barrier(MPI_COMM_WORLD);
+
     for(int i=0;i<ctx.world_size;i++){
         printf("%d-sending after move: index:%d\n",ctx.my_rank,indexes[i]);
         print_array(to_send[i],indexes[i]);
