@@ -435,6 +435,7 @@ void move_step(){
             remove_node(to_remove);
             continue;
         }
+        if(current==NULL) printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
         current = current->next;
     }
 
