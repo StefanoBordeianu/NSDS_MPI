@@ -425,6 +425,7 @@ void move_step(){
         move_fish(current->fish);
         printf("%d-B\n",ctx.my_rank);
         slice = get_slice_from_position(current->fish);
+        printf("%d-B2\n",ctx.my_rank);
         if(slice != ctx.my_rank){
             add_to_slice(current->fish, &indexes[slice], to_send[slice]);
             printf("%d-C\n",ctx.my_rank);
@@ -433,6 +434,7 @@ void move_step(){
             struct node* to_remove = current;
             current = current->next;
             remove_node(to_remove);
+            printf("%d-D\n",ctx.my_rank);
             continue;
         }
         if(current==NULL) printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
