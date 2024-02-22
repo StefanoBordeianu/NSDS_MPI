@@ -165,7 +165,8 @@ struct node* add(struct fish f, struct node* list){
 //remove_node a node in a list
 void remove_node(struct node* node){
     node->prev->next = node->next;
-    node->next->prev = node->prev;
+    if(node->next!=NULL) 
+       node->next->prev = node->prev;
     //here just in case, but speed is not a pointed struct
     //free(node->fish->speed);
     free(node->fish);
