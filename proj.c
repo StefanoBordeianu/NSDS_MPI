@@ -68,7 +68,7 @@ struct ctx ctx;
 
 void print_fish(struct fish f){
     printf("%d-Fish:%ld       Position:%fx   %fy   %fz\n",ctx.my_rank,f.id,f.x,f.y,f.z);
-    printf("%d-active:%d   size:%d    eating:%d",ctx.my_rank,f.active,f.size,f.eating);
+    printf("%d-active:%d   size:%d    eating:%d\n",ctx.my_rank,f.active,f.size,f.eating);
 }
 
 void print_local(){
@@ -413,6 +413,7 @@ void move_step(){
     }
     
     //DEBUG
+    printf("start moving\n");
     print_local();
 
     //for each fish move it and check in which slice it ended up
@@ -579,6 +580,8 @@ void setup(){
         add(f,list);
     }
     ctx.fishes = list;
+
+
 }
 
 void create_types_speed(){
