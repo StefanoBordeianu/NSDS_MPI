@@ -54,7 +54,9 @@ struct ctx{
     int adjacent_list_size;
     int* adjacent_sizes;
     struct update_tuple** update_lists;
-    int* adjacent_ranks;
+    int* neighbor_ranks;
+    int number_of_neighbors;
+
 };
 
 
@@ -162,7 +164,6 @@ int count_local(){
 
 }
 
-
 struct fish* list_to_array(int* len){
 
     struct node* current = ctx.fishes->next;
@@ -182,10 +183,9 @@ struct fish* list_to_array(int* len){
     return res;
 }
 
-
 void send_neighbor(){
 
-    MPI_Request req[ctx.adjacent_to_consider*2];
+    MPI_Request req[ctx.number_of_neighbors];
     struct fish* to_send;
     int len_to_send;
 
@@ -194,52 +194,44 @@ void send_neighbor(){
     //we first send the len of the buffer then the buffer
 
     int j = 0;
-    for(int i=1; i<=ctx.adjacent_to_consider; i++){
-
-        if((ctx.world_size-1 >= ctx.my_rank + i)){
-            MPI_Isend(&len_to_send,1, MPI_INT, ctx.my_rank + i, 0, MPI_COMM_WORLD, req[j]);
+    for(int i = 0;i<ctx.number_of_neighbors;i++){
+            MPI_Isend(&len_to_send,1, MPI_INT, ctx.neighbor_ranks[i], 0, MPI_COMM_WORLD, req[j]);
             j++;
-            MPI_Isend(to_send,len_to_send, type_fish, ctx.my_rank + i, 0, MPI_COMM_WORLD, req[j]);
+            MPI_Isend(to_send,len_to_send, type_fish, ctx.neighbor_ranks[i], 0, MPI_COMM_WORLD, req[j]);
             j++;
-        }
-        if((0 <= ctx.my_rank - i)){
-            MPI_Isend(&len_to_send,1, MPI_INT, ctx.my_rank - i, 0, MPI_COMM_WORLD, req[j]);
-            j++;
-            MPI_Isend(to_send,len_to_send, type_fish, ctx.my_rank - i, 0, MPI_COMM_WORLD, req[j]);
-            j++;
-        }
     }
+
     MPI_Status stats[j];
     MPI_Waitall(j,req,stats);
 }
 
-
 int recv_neighbor(){
 
-    int j = 0;
     MPI_Request req[ctx.adjacent_to_consider];
 
-    for(int i=1; i<=ctx.adjacent_to_consider; i++){
-        if(!(0 >= ctx.my_rank - i)){
-            MPI_Irecv(&ctx.adjacent_sizes[ctx.my_rank+i],1,MPI_INT,ctx.my_rank-i,0,MPI_COMM_WORLD,req[j]);
-            j++;
-        }
-    }
-        for(int i=1; i<=ctx.adjacent_to_consider; i++){
-        if((ctx.world_size-1 >= ctx.my_rank + i)){
-            MPI_Irecv(&ctx.adjacent_sizes[ctx.my_rank+i],1,MPI_INT,ctx.my_rank+i,0,MPI_COMM_WORLD,req[j]);
-            j++;
-        }
+    int j = 0;
+    for(int i = 0;i<ctx.number_of_neighbors;i++){
+        MPI_Irecv(&ctx.adjacent_sizes[ctx.neighbor_ranks[i]],1,MPI_INT,ctx.neighbor_ranks[i],0,MPI_COMM_WORLD,req[j]);
+        j++;
     }
     
     MPI_Status stats[j];
     MPI_Waitall(j,req,stats);
 
-
-
     //allocare gli array per dove ricevere e ricevere 
+    for(int i = 0;i<ctx.number_of_neighbors;i++){
+        int size = ctx.adjacent_sizes[ctx.neighbor_ranks[i]];
+        ctx.adjacent_list[ctx.neighbor_ranks[i]] = malloc(sizeof(struct fish) * size);
+    }
+    
+    for(int i = 0;i<ctx.number_of_neighbors;i++){
+        int rank = ctx.neighbor_ranks[i];
+        MPI_Irecv(&ctx.adjacent_list[rank],ctx.adjacent_sizes[rank],type_fish,rank,0,MPI_COMM_WORLD,req[j]);
+        j++;
+    }
+    MPI_Status stats[j];
+    MPI_Waitall(j,req,stats);
 }
-
 
 void eating_step(){
     struct node* cycle;
@@ -267,24 +259,19 @@ void eating_step(){
         }
 
         //check adjacent lists
-        for (int i=0; i<ctx.world_size; i++){
-            if(ctx.adjacent_list[i]==NULL)
-                continue;
-            
-            for (int j = 0; j<ctx.adjacent_sizes[i]; j++){
-                struct fish* cycle_fish = &ctx.adjacent_list[i][j];
+        for (int i=0; i<ctx.number_of_neighbors; i++){
+            int rank = ctx.neighbor_ranks[i]; 
 
+            for (int j = 0; j<ctx.adjacent_sizes[rank]; j++){
+                struct fish* cycle_fish = &ctx.adjacent_list[rank][j];
                 if(distance(current->fish,cycle_fish)<=params.eating_distance 
                                     && current->fish->size < cycle_fish->size){
                     biggest_non_local = cycle_fish;
                     current->fish->active = 0;
                     break;
                 }
-
-            }
-            
+            }    
         }
-        
 
         //increase the size of the biggest eating fish 
         if(biggest_non_local == NULL)
@@ -302,6 +289,11 @@ void eating_step(){
     }
     free(current);
 
+    send_adj();
+    //free adjacent list
+    for(int i = 0;i<ctx.number_of_neighbors;i++)
+        free(ctx.adjacent_list[ctx.neighbor_ranks[i]]);
+    recv_neighbor();
 }
 
 //returns the slice resposable for the position of the fish
@@ -427,16 +419,22 @@ void setup(){
     ctx.end_y = (params.edge_size/ctx.world_size) * (ctx.my_rank+1);
     ctx.start_y = (params.edge_size/ctx.world_size) * (ctx.my_rank);
     ctx.adjacent_to_consider = ceil(params.eating_distance/(ctx.end_y - ctx.start_y));
-    ctx.adjacent_list = malloc(sizeof(struct fish*)*(ctx.adjacent_to_consider*2));
+    ctx.adjacent_list = malloc(sizeof(struct fish*) * (ctx.world_size));
     ctx.adjacent_sizes = malloc(sizeof(int)*(ctx.world_size));
+    ctx.neighbor_ranks = malloc(sizeof(int)*ctx.adjacent_to_consider*2);
 
-    ctx.adjacent_ranks = malloc(sizeof(int)*ctx.adjacent_to_consider*2);
     int tmp = 0;
     for(int i=1; i<=ctx.adjacent_to_consider; i++){
-        if((ctx.world_size-1 >= ctx.my_rank + i)){
-            ctx.adjacent_ranks[tmp] = ctx.my_rank + i;
-        //potrei essermi rotto il cazzo :D
+        if(ctx.world_size-1 >= ctx.my_rank + i){
+            ctx.neighbor_ranks[tmp] = ctx.my_rank + i;
+            tmp++;
+        }
+        if(0<= ctx.my_rank-i){
+            ctx.neighbor_ranks[tmp] = ctx.my_rank -i;
+            tmp++;
+        }
     }
+    ctx.number_of_neighbors = tmp;
 
     //creating fishes
     for(int i=0; i<((int)params.numb_fish/ctx.world_size); i++){
