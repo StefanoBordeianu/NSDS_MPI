@@ -427,18 +427,22 @@ void move_step(){
         slice = get_slice_from_position(current->fish);
         printf("%d-B2\n",ctx.my_rank);
         if(slice != ctx.my_rank){
-            add_to_slice(current->fish, &indexes[slice], to_send[slice]);
             printf("%d-C\n",ctx.my_rank);
+            add_to_slice(current->fish, &indexes[slice], to_send[slice]);
+            printf("%d-C2\n",ctx.my_rank);
             if(indexes[slice]==sizes[slice])
                 expand(slice,to_send,sizes);
             struct node* to_remove = current;
             current = current->next;
-            remove_node(to_remove);
             printf("%d-D\n",ctx.my_rank);
+            remove_node(to_remove);
+            printf("%d-D2\n",ctx.my_rank);
             continue;
         }
         if(current==NULL) printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
+        printf("%d-E\n",ctx.my_rank);
         current = current->next;
+        printf("%d-E2\n",ctx.my_rank);
     }
 
     for(int i=0;i<ctx.world_size;i++){
