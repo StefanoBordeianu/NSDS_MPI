@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
     struct speed speed;
     struct fish f;
     //printf("creating types\n");
-
+    printf("%d\n", world_size);
     printf("rank %d :  %d      %d \n",world_rank, atoi(argv[1]),atoi(argv[2]));
 
 

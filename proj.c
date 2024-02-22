@@ -51,8 +51,10 @@ struct ctx{
     int world_size;
     struct node* fishes;
     struct fish** adjacent_list;
+    int adjacent_list_size;
     int* adjacent_sizes;
     struct update_tuple** update_lists;
+    int* adjacent_ranks;
 };
 
 
@@ -148,56 +150,154 @@ void remove_node(struct node* node){
     free(node);
 }
 
+int count_local(){
+    struct node* current = ctx.fishes->next;
+    int res = 0;
+
+    while(current!=NULL){
+        res++;
+        current = current->next;
+    }
+    return res;
+
+}
+
+
+struct fish* list_to_array(int* len){
+
+    struct node* current = ctx.fishes->next;
+    //very costly due to poor design, might change later
+    int count_of_local_fishes = count_local();
+
+
+    struct fish* res = malloc(sizeof(struct fish)*count_of_local_fishes);
+
+    int i = 0;
+    while(current != NULL){
+        res[i] = *(current->fish);
+        i++;
+        current = current->next;
+    }
+    *len = count_of_local_fishes;
+    return res;
+}
+
+
+void send_neighbor(){
+
+    MPI_Request req[ctx.adjacent_to_consider*2];
+    struct fish* to_send;
+    int len_to_send;
+
+    to_send = list_to_array(&len_to_send);
+
+    //we first send the len of the buffer then the buffer
+
+    int j = 0;
+    for(int i=1; i<=ctx.adjacent_to_consider; i++){
+
+        if((ctx.world_size-1 >= ctx.my_rank + i)){
+            MPI_Isend(&len_to_send,1, MPI_INT, ctx.my_rank + i, 0, MPI_COMM_WORLD, req[j]);
+            j++;
+            MPI_Isend(to_send,len_to_send, type_fish, ctx.my_rank + i, 0, MPI_COMM_WORLD, req[j]);
+            j++;
+        }
+        if((0 <= ctx.my_rank - i)){
+            MPI_Isend(&len_to_send,1, MPI_INT, ctx.my_rank - i, 0, MPI_COMM_WORLD, req[j]);
+            j++;
+            MPI_Isend(to_send,len_to_send, type_fish, ctx.my_rank - i, 0, MPI_COMM_WORLD, req[j]);
+            j++;
+        }
+    }
+    MPI_Status stats[j];
+    MPI_Waitall(j,req,stats);
+}
+
+
+int recv_neighbor(){
+
+    int j = 0;
+    MPI_Request req[ctx.adjacent_to_consider];
+
+    for(int i=1; i<=ctx.adjacent_to_consider; i++){
+        if(!(0 >= ctx.my_rank - i)){
+            MPI_Irecv(&ctx.adjacent_sizes[ctx.my_rank+i],1,MPI_INT,ctx.my_rank-i,0,MPI_COMM_WORLD,req[j]);
+            j++;
+        }
+    }
+        for(int i=1; i<=ctx.adjacent_to_consider; i++){
+        if((ctx.world_size-1 >= ctx.my_rank + i)){
+            MPI_Irecv(&ctx.adjacent_sizes[ctx.my_rank+i],1,MPI_INT,ctx.my_rank+i,0,MPI_COMM_WORLD,req[j]);
+            j++;
+        }
+    }
+    
+    MPI_Status stats[j];
+    MPI_Waitall(j,req,stats);
+
+
+
+    //allocare gli array per dove ricevere e ricevere 
+}
+
+
 void eating_step(){
     struct node* cycle;
-    struct node* current = malloc(sizeof(struct node));    
-    current = ctx.fishes;
+    struct node* current;
+    current = ctx.fishes->next;
+    
+    send_neighbor();
+    recv_neighbor();
 
     //For each fish in the local list check if there is some fish in the local list or
     //in one adjacent that can eat it
     while(current!=NULL){
-        struct node* biggest_n = NULL;
-        struct fish* biggest_f = NULL;
+        struct node* biggest_local = NULL;
+        struct fish* biggest_non_local = NULL;
         cycle = ctx.fishes->next;
 
         //check the local list
         while(cycle != current){
             if(distance(current->fish,cycle->fish)<=params.eating_distance 
                                     && current->fish->size < cycle->fish->size){
-                    biggest_n = cycle;
+                    biggest_local = cycle;
                     current->fish->active = 0;
                 }
-            current = current->next;
+            cycle = cycle->next;
         }
 
         //check adjacent lists
-        for (int i=0; i<ctx.adjacent_to_consider; i++){
+        for (int i=0; i<ctx.world_size; i++){
+            if(ctx.adjacent_list[i]==NULL)
+                continue;
             
             for (int j = 0; j<ctx.adjacent_sizes[i]; j++){
                 struct fish* cycle_fish = &ctx.adjacent_list[i][j];
 
                 if(distance(current->fish,cycle_fish)<=params.eating_distance 
                                     && current->fish->size < cycle_fish->size){
-                    biggest_f = cycle_fish;
+                    biggest_non_local = cycle_fish;
                     current->fish->active = 0;
+                    break;
                 }
+
             }
             
         }
         
 
         //increase the size of the biggest eating fish 
-        if(biggest_f == NULL)
-            biggest_n->fish->eating += 1;
+        if(biggest_non_local == NULL)
+            biggest_local->fish->eating += 1;
 
-        else if(biggest_n == NULL)
-            biggest_f->eating += 1;
+        else if(biggest_local == NULL)
+            biggest_non_local->eating += 1;
 
         else{        
-            if(biggest_f->size >= biggest_n->fish->size)
-                biggest_f->eating += 1;
+            if(biggest_non_local->size >= biggest_local->fish->size)
+                biggest_non_local->eating += 1;
             else
-                biggest_n->fish->eating += 1;
+                biggest_local->fish->eating += 1;
         }
     }
     free(current);
@@ -205,7 +305,7 @@ void eating_step(){
 }
 
 //returns the slice resposable for the position of the fish
-int check_slice(struct fish* f){
+int get_slice_from_position(struct fish* f){
     double slice_size = params.edge_size/ctx.world_size;
     return (int)(f->y/slice_size);
 }
@@ -232,8 +332,9 @@ void add_to_slice(struct fish* f, int* index, struct fish* array){
 
 void move_step(){
     struct node* current = ctx.fishes->next;
+    //one array of fishes for each slice because the fish could end up in every slice after moving
     struct fish* to_send[ctx.world_size];
-    int current_index[ctx.world_size];
+    int indexes[ctx.world_size];
     int sizes[ctx.world_size];
     int starting_size = 200;
 
@@ -246,20 +347,28 @@ void move_step(){
     //if it ended up in a slice different from the local one 
     //move it to the array that will be sent to the process responsable
     //for that slice. The arrays are basically like Java arrayList
-    while(current!= NULL){
+    while(current != NULL){
         int slice;
 
         move_fish(current->fish);
-        slice = check_slice(current->fish);
+        slice = get_slice_from_position(current->fish);
         if(slice != ctx.my_rank){
-            add_to_slice(current->fish, &current_index[slice], to_send[slice]);
-            if(current_index[slice]==sizes[slice])
+            add_to_slice(current->fish, &indexes[slice], to_send[slice]);
+            if(indexes[slice]==sizes[slice])
                 expand(slice,to_send,sizes);
-            remove_node(current);
+            struct node* to_remove = current;
+            current = current->next;
+            remove_node(to_remove);
+            continue;
         }
         current = current->next;
     }
 
+    //send the to_send arrays to the others
+
+    //receive the arrays from the other 
+
+    //put the fishes received in the ctx.fishes list
 }
 
 void make_step(){
@@ -319,7 +428,15 @@ void setup(){
     ctx.start_y = (params.edge_size/ctx.world_size) * (ctx.my_rank);
     ctx.adjacent_to_consider = ceil(params.eating_distance/(ctx.end_y - ctx.start_y));
     ctx.adjacent_list = malloc(sizeof(struct fish*)*(ctx.adjacent_to_consider*2));
-    ctx.adjacent_sizes = malloc(sizeof(int)*(ctx.adjacent_to_consider*2));
+    ctx.adjacent_sizes = malloc(sizeof(int)*(ctx.world_size));
+
+    ctx.adjacent_ranks = malloc(sizeof(int)*ctx.adjacent_to_consider*2);
+    int tmp = 0;
+    for(int i=1; i<=ctx.adjacent_to_consider; i++){
+        if((ctx.world_size-1 >= ctx.my_rank + i)){
+            ctx.adjacent_ranks[tmp] = ctx.my_rank + i;
+        //potrei essermi rotto il cazzo :D
+    }
 
     //creating fishes
     for(int i=0; i<((int)params.numb_fish/ctx.world_size); i++){
@@ -404,7 +521,7 @@ int parseArgs(int argc, char* argv[]){
     params.timestep = 1;
 
 
-    while((opt =getopt(argc,argv,"hs:p:d:w:")) != -1) {
+    while((opt = getopt(argc,argv,"hs:p:d:w:")) != -1) {
         switch (opt) {
             case 'e':
                 params.edge_size = atof(optarg);
