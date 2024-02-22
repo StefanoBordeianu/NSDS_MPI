@@ -421,13 +421,13 @@ void move_step(){
     //for that slice. The arrays are basically like Java arrayList
     while(current != NULL){
         int slice;
-        printf("A\n");
+        printf("%d-A\n",ctx.my_rank);
         move_fish(current->fish);
-        printf("B\n");
+        printf("%d-B\n",ctx.my_rank);
         slice = get_slice_from_position(current->fish);
         if(slice != ctx.my_rank){
             add_to_slice(current->fish, &indexes[slice], to_send[slice]);
-            printf("C\n");
+            printf("%d-C\n",ctx.my_rank);
             if(indexes[slice]==sizes[slice])
                 expand(slice,to_send,sizes);
             struct node* to_remove = current;
