@@ -12,7 +12,9 @@ struct fish{
     double x;
     double y;
     double z;
-    struct speed speed;
+    double sx;
+    double sy;
+    double sz;
     char active;
     long id;
     int size;
@@ -49,19 +51,21 @@ void create_types1(){
 
 void create_types2(){
     struct fish f;
-    MPI_Aint displacement [8];
+    MPI_Aint displacement [10];
     MPI_Aint base_add;
-    int lengths[8] = { 1, 1, 1,1,1,1,1,1 };
+    int lengths[10] = { 1,1,1,1,1,1,1,1,1,1 };
 
     MPI_Get_address(&f, &base_add);
     MPI_Get_address(&f.x, &displacement[0]);
     MPI_Get_address(&f.y, &displacement[1]);
     MPI_Get_address(&f.z, &displacement[2]);
-    MPI_Get_address(&f.speed, &displacement[3]);
-    MPI_Get_address(&f.active, &displacement[4]);
-    MPI_Get_address(&f.id, &displacement[5]);
-    MPI_Get_address(&f.size, &displacement[6]);
-    MPI_Get_address(&f.eating, &displacement[7]);
+    MPI_Get_address(&f.sx, &displacement[3]);
+    MPI_Get_address(&f.sy, &displacement[4]);
+    MPI_Get_address(&f.sz, &displacement[5]);
+    MPI_Get_address(&f.active, &displacement[6]);
+    MPI_Get_address(&f.id, &displacement[7]);
+    MPI_Get_address(&f.size, &displacement[8]);
+    MPI_Get_address(&f.eating, &displacement[9]);
 
     displacement[0] = MPI_Aint_diff(displacement[0],base_add);
     displacement[1] = MPI_Aint_diff(displacement[1],base_add);
@@ -71,13 +75,18 @@ void create_types2(){
     displacement[5] = MPI_Aint_diff(displacement[5],base_add);
     displacement[6] = MPI_Aint_diff(displacement[6],base_add);
     displacement[7] = MPI_Aint_diff(displacement[7],base_add);
+    displacement[8] = MPI_Aint_diff(displacement[8],base_add);
+    displacement[9] = MPI_Aint_diff(displacement[9],base_add);
 
 
-    MPI_Datatype types[8]= {MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,type_speed,MPI_CHAR,MPI_LONG,MPI_INT,MPI_INT};
+    MPI_Datatype types[10]= {MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_CHAR,MPI_LONG,MPI_INT,MPI_INT};
     MPI_Type_create_struct(3, lengths, displacement, types, &type_fish);
     MPI_Type_commit(&type_fish);
 }
 
+void print_fish(struct fish f){
+    printf("-Fish:%ld       Position:%fx   %fy   %fz     %f %f %f     active:%d   size:%d    eating:%d\n",f.id,f.x,f.y,f.z,f.sx,f.sy,f.sz,f.active,f.size,f.eating);
+}
 
 int main(int argc, char** argv) {
     // int i;
@@ -95,50 +104,52 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     struct speed speed;
     struct fish f;
+    struct fish fs[2];
     //printf("creating types\n");
     printf("%d\n", world_size);
-    printf("rank %d :  %d      %d \n",world_rank, atoi(argv[1]),atoi(argv[2]));
+    //printf("rank %d :  %d      %d \n",world_rank, atoi(argv[1]),atoi(argv[2]));
 
 
     create_types1();
     create_types2();
     
     if(world_rank == 1 ){
-        speed.x = 20;
-        speed.y = 12;
-        speed.z = 8;
-        f.speed = speed;
+        f.sx = 20;
+        f.sy = 12;
+        f.sz = 8;
         //printf("Process rank %d, speed is: %f %f %f\n",world_rank,speed.x,speed.y,speed.z);
         //MPI_Recv(&speed, 1, type_speed, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         //printf("Process rank %d, speed is: %f %f %f\n",world_rank,speed.x,speed.y,speed.z);
         f.x = 4;
         f.y = 5;
         f.z = 6.5;
-        f.speed = speed;
         f.size = 7;
         f.id = 3;
         f.eating = 10;
-        f.active = 0;
-        printf("PRE    Process rank %d, fish is: %f %f %f %d %d %ld %f %f %f \n",world_rank,f.x,f.y,f.z,f.active,f.eating,f.id,f.speed.x,f.speed.y,f.speed.z);
-        MPI_Recv(&f, 1, type_fish, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        printf("POST   Process rank %d, fish is: %f %f %f %d %d %ld %f %f %f \n",world_rank,f.x,f.y,f.z,f.active,f.eating,f.id,f.speed.x,f.speed.y,f.speed.z);
+        f.active = 0;       
+        printf("PRE    Process rank %d, fish is: %f %f %f %d %d %ld %f %f %f \n",world_rank,f.x,f.y,f.z,f.active,f.eating,f.id,f.sx,f.sy,f.sz);
+        MPI_Recv(&fs, sizeof(struct fish) * 2, MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        printf("POST   Process rank %d, fish is: %f %f %f %d %d %ld %f %f %f \n",world_rank,f.x,f.y,f.z,f.active,f.eating,f.id,f.sx,f.sy,f.sz);
+        print_fish(fs[0]);
+        print_fish(fs[1]);
     }
     else if(world_rank == 0){
-        speed.x = 80;
-        speed.y = 42.1;
-        speed.z = 33;
+        f.sx = 80;
+        f.sy = 42.1;
+        f.sz = 33;
         f.x = 1;
         f.y = 2;
         f.z = 1.5;
-        f.speed = speed;
         f.size = 3;
         f.id = 2;
         f.eating = 1;
         f.active = 1;
+        fs[0] = f;
+        fs[1] = f; 
         //printf("Process rank %d, speed is: %f %f %f\n",world_rank,speed.x,speed.y,speed.z);
-        printf("SEND    Process rank %d, fish is: %f %f %f %d %d %ld %f %f %f \n",world_rank,f.x,f.y,f.z,f.active,f.eating,f.id,f.speed.x,f.speed.y,f.speed.z);
+        printf("SEND    Process rank %d, fish is: %f %f %f %d %d %ld %f %f %f \n",world_rank,f.x,f.y,f.z,f.active,f.eating,f.id,f.sx,f.sy,f.sz);
         //MPI_Send(&speed, 1, type_speed, 1, 0, MPI_COMM_WORLD);
-        MPI_Send(&f, 1, type_fish, 1, 0, MPI_COMM_WORLD);
+        MPI_Send(&fs, 2 * sizeof(struct fish), MPI_CHAR, 1, 0, MPI_COMM_WORLD);
     }
 
     // Print off a hello world message

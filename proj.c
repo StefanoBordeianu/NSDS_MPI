@@ -19,8 +19,8 @@ struct fish{
     double z;
     struct speed speed;
     char active;
-    int size;
     long id;
+    int size;
     int eating;
 };
 
@@ -142,7 +142,7 @@ struct node* add(struct fish f, struct node* list){
             //if fish is bigger in size then the one in current node
             //put it in front of the current node
             to_add->fish = malloc(sizeof(struct fish));
-            *to_add->fish = f;
+            *(to_add->fish) = f;
             to_add->next = current;
             to_add->prev = prev;
             to_add->head = list->head;
@@ -156,7 +156,7 @@ struct node* add(struct fish f, struct node* list){
     prev->next = to_add;
     to_add->fish = malloc(sizeof(struct fish));
     to_add->head = list->head;
-    *to_add->fish = f;
+    *(to_add->fish) = f;
     to_add->prev = prev;
     to_add->next = NULL;
     return list;
@@ -228,7 +228,6 @@ void send_neighbor(){
 
 void send_adj(){
     MPI_Request req[ctx.number_of_neighbors];
-    struct fish* to_send;
 
     //we first send the len of the buffer then the buffer
 
@@ -237,7 +236,7 @@ void send_adj(){
             int rank = ctx.neighbor_ranks[i];
             MPI_Isend(&ctx.adjacent_sizes[rank],1, MPI_INT, rank , 0, MPI_COMM_WORLD, &req[j]);
             j++;
-            MPI_Isend(&ctx.adjacent_list[rank],ctx.adjacent_sizes[rank], type_fish, rank , 0, MPI_COMM_WORLD, &req[j]);
+            MPI_Isend(ctx.adjacent_list[rank],ctx.adjacent_sizes[rank], type_fish, rank , 0, MPI_COMM_WORLD, &req[j]);
             j++;
     }
     MPI_Status stats[j];
@@ -265,7 +264,7 @@ int recv_neighbor(){
     
     for(int i = 0;i<ctx.number_of_neighbors;i++){
         int rank = ctx.neighbor_ranks[i];
-        MPI_Irecv(&ctx.adjacent_list[rank],ctx.adjacent_sizes[rank],type_fish,rank,0,MPI_COMM_WORLD,&req[j]);
+        MPI_Irecv(ctx.adjacent_list[rank],ctx.adjacent_sizes[rank],type_fish,rank,0,MPI_COMM_WORLD,&req[j]);
         j++;
     }
     //MPI_Status stats[j];
@@ -413,8 +412,8 @@ void move_step(){
     }
     
     //DEBUG
-    printf("start moving\n");
-    print_local();
+    printf("%d-start moving\n",ctx.my_rank);
+    //print_local();
 
     //for each fish move it and check in which slice it ended up
     //if it ended up in a slice different from the local one 
@@ -422,29 +421,19 @@ void move_step(){
     //for that slice. The arrays are basically like Java arrayList
     while(current != NULL){
         int slice;
-        //printf("%d-A\n",ctx.my_rank);
         move_fish(current->fish);
-        //printf("%d-B\n",ctx.my_rank);
         slice = get_slice_from_position(current->fish);
-        //printf("%d-B2   slice:%d\n",ctx.my_rank,slice);
         if(slice != ctx.my_rank){
-            //printf("%d-C\n",ctx.my_rank);
 
             add_to_slice(current->fish, &indexes[slice], to_send[slice]);
-
-            //printf("%d-C2\n",ctx.my_rank);
             if(indexes[slice]==sizes[slice])
                 expand(slice,to_send,sizes);
             struct node* to_remove = current;
             current = current->next;
-            //printf("%d-D\n",ctx.my_rank);
             remove_node(to_remove);
-            //printf("%d-D2\n",ctx.my_rank);
             continue;
         }
-        //printf("%d-E\n",ctx.my_rank);
         current = current->next;
-        //printf("%d-E2\n",ctx.my_rank);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -452,12 +441,14 @@ void move_step(){
     for(int i=0;i<ctx.world_size;i++){
         if(i==ctx.my_rank)
             continue;
-        printf("%d-sending after move: index:%d\n",ctx.my_rank,indexes[i]);
-        print_array(to_send[i],indexes[i]);
+        //printf("%d-sending after move to rank %d: size to send:%d\n",ctx.my_rank,i,indexes[i]);
+        //print_array(to_send[i],indexes[i]);
     }
+    //printf("%d-local before sending\n",ctx.my_rank);
+    //print_local();
 
     //send the to_send arrays to the others
-    MPI_Request send_req[ctx.world_size*2];
+    MPI_Request send_req[(ctx.world_size-2)*2];
     int j=0;
     for(int i=0;i<ctx.world_size;i++){
         //we skip our own rank
@@ -465,10 +456,13 @@ void move_step(){
             continue;
         MPI_Isend(&indexes[i] , 1 , MPI_INT , i , 0 , MPI_COMM_WORLD , &send_req[j]);
         j++;
-        MPI_Isend(&to_send[i] , indexes[i] , type_fish , i , 0 , MPI_COMM_WORLD , &send_req[j]);
+        //MPI_Isend(to_send[i] ,sizeof(struct fish) * indexes[i] , MPI_CHAR , i , 0 , MPI_COMM_WORLD , &send_req[j]);
+        MPI_Isend(to_send[i] ,indexes[i] , type_fish , i , 0 , MPI_COMM_WORLD , &send_req[j]);
         j++;
+        //printf("%d-First send: Sending to rank %d\n",ctx.my_rank,i);
+        //print_array(to_send[i],indexes[i]);
     }
-    printf("%d-First send\n",ctx.my_rank);
+    //printf("%d-First send\n",ctx.my_rank);
     MPI_Status stats[j];
     MPI_Waitall(j,send_req,stats);
     
@@ -476,7 +470,7 @@ void move_step(){
 
 
     //receive the arrays from the other 
-    MPI_Request recv_req[ctx.world_size];
+    MPI_Request recv_req[ctx.world_size-1];
     j=0;
     struct fish* to_recv[ctx.world_size];
     int to_recv_sizes[ctx.world_size];
@@ -487,10 +481,10 @@ void move_step(){
         MPI_Irecv(&to_recv_sizes[i],1 , MPI_INT , i , 0 , MPI_COMM_WORLD , &recv_req[j]);
         j++;
     }
-    printf("%d-First Receive\n",ctx.my_rank);
+    //printf("%d-First Receive\n",ctx.my_rank);
     MPI_Status stats2[j];
     MPI_Waitall(j,recv_req,stats2);
-    printf("%d-size received = %d %d\n",ctx.my_rank,to_recv_sizes[0],to_recv_sizes[1]);
+    //printf("%d-size received = %d %d\n",ctx.my_rank,to_recv_sizes[0],to_recv_sizes[1]);
 
     for(int i=0;i<ctx.world_size;i++){
         //we skip our own rank
@@ -498,23 +492,32 @@ void move_step(){
             continue;
         to_recv[i] = malloc(sizeof(struct fish) * to_recv_sizes[i]);
     }
-    printf("%d-Allocated receive buffers\n",ctx.my_rank);
-
+    MPI_Barrier(MPI_COMM_WORLD);
 
     j=0;
+    MPI_Request recv_req2[ctx.world_size-1];
     for(int i=0;i<ctx.world_size;i++){
         //we skip our own rank
         if(i==ctx.my_rank)
             continue;
-        MPI_Irecv(&to_recv[i],to_recv_sizes[i],type_fish, i , 0 , MPI_COMM_WORLD , &recv_req[j]);
+        //MPI_Irecv(to_recv[i],sizeof(struct fish) * to_recv_sizes[i],MPI_CHAR, i , 0 , MPI_COMM_WORLD , &recv_req2[j]);
+        MPI_Irecv(to_recv[i],to_recv_sizes[i],type_fish, i , 0 , MPI_COMM_WORLD , &recv_req2[j]);
         j++;
     }
-    printf("%d-Second Receive\n",ctx.my_rank);
     MPI_Status stats3[j];
-    MPI_Waitall(j,recv_req,stats3);
+    MPI_Waitall(j,recv_req2,stats3);
+    //printf("%d-Second Receive waited\n",ctx.my_rank);
     MPI_Barrier(MPI_COMM_WORLD);
-    // print_array(to_recv[0],to_recv_sizes[0]);
-    // print_array(to_recv[1],to_recv_sizes[1]);
+    
+    for(int i=0;i<ctx.world_size;i++){
+        if(i==ctx.my_rank)
+            continue;
+        //printf("%d-RECEIVED FROM RANK:%d\n",ctx.my_rank,i);
+        //print_array(to_recv[i],to_recv_sizes[i]);
+    }
+    //printf("%d-local before MERGING\n",ctx.my_rank);
+    //print_local();
+
     
     //put the fishes received in the ctx.fishes list
     for(int i=0;i<ctx.world_size;i++){
@@ -523,17 +526,17 @@ void move_step(){
         for(j=0;j<to_recv_sizes[i];j++){
             add(to_recv[i][j],ctx.fishes);
         }
-        // printf("%d-C\n",ctx.my_rank);
-        // if(to_recv_sizes[i]!=0)
-        //     free(to_recv[i]);
-        // printf("%d-C2\n",ctx.my_rank);
-        // if(indexes[i]!=0)
-        //     free(to_send[i]);
-        // printf("%d-C3\n",ctx.my_rank);
+        //printf("%d-C\n",ctx.my_rank);
+        if(to_recv_sizes[i]!=0)
+            free(to_recv[i]);
+        //printf("%d-C2\n",ctx.my_rank);
+        if(indexes[i]!=0)
+            free(to_send[i]);
+        //printf("%d-C3\n",ctx.my_rank);
     }
-    printf("%d-merging the list and free\n",ctx.my_rank);
+    //printf("%d-merging the list and free\n",ctx.my_rank);
     MPI_Barrier(MPI_COMM_WORLD);
-    print_local();
+    //print_local();
 }
 
 void make_step(){
@@ -573,7 +576,7 @@ struct fish create_fish(long id){
 }
 
 void setup(){
-    srand(time(NULL));
+
     int world_size,rank;
 
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -587,6 +590,8 @@ void setup(){
 
     //Setup all the context variables
     ctx.my_rank = rank;
+    srand(time(NULL) * ctx.my_rank);
+    printf("%d-seed %ld\n",ctx.my_rank,time(NULL) + ctx.my_rank);
     ctx.world_size = world_size;
     ctx.end_y = (params.edge_size/ctx.world_size) * (ctx.my_rank+1);
     ctx.start_y = (params.edge_size/ctx.world_size) * (ctx.my_rank);
