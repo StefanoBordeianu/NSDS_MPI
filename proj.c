@@ -100,9 +100,9 @@ double distance(struct fish* f1,struct fish* f2){
 
 //move the fish of the speed*timestep
 void move_fish(struct fish* f){
-    f->x += f->speed.x + params.timestep;
-    f->y += f->speed.y + params.timestep;
-    f->z += f->speed.z + params.timestep;
+    f->x += f->speed.x * params.timestep;
+    f->y += f->speed.y * params.timestep;
+    f->z += f->speed.z * params.timestep;
 
     //CHECKING BOUNDRIES
     //if a boundry is crossed then position set at the boundry 
@@ -622,10 +622,91 @@ int check_total_count(){
     return res;
 }
 
+int local_tie(){
+    struct node* cycle;
+    cycle = ctx.fishes->next;
+    int res = 0;
+    int max = 0;
+
+    while(cycle!=NULL){
+        if(max == 0){
+            max = cycle->fish->size;
+            cycle = cycle->next;
+            res = max;
+            continue;
+        }
+        if(cycle->fish->size != max){
+            return -1;
+        }
+        else{
+            cycle = cycle->next;
+        }
+    }
+    return res;
+}
+
+int is_tie(){
+
+    MPI_Request recv_req[ctx.world_size-1];
+    MPI_Request send_req[ctx.world_size-1];
+    int j=0;
+    int to_recv[ctx.world_size];
+    to_recv[ctx.my_rank] = local_tie();
+    int res=0;
+
+    for(int i=0;i<ctx.world_size;i++){
+        //we skip our own rank
+        if(i==ctx.my_rank)
+            continue;
+        MPI_Isend(&to_recv[ctx.my_rank] , 1 , MPI_INT , i , 0 , MPI_COMM_WORLD , &send_req[j]);
+        j++;
+    }
+    MPI_Status stats[j];
+    MPI_Waitall(j,send_req,stats);
+
+
+    j=0;
+    for(int i=0;i<ctx.world_size;i++){
+        //we skip our own rank
+        if(i==ctx.my_rank)
+            continue;
+        MPI_Irecv(&to_recv[i],1 , MPI_INT , i , 0 , MPI_COMM_WORLD , &recv_req[j]);
+        j++;
+    }
+    MPI_Status stats2[j];
+    MPI_Waitall(j,recv_req,stats2);
+
+
+    int max = 0;
+    for(int i=0;i<ctx.world_size;i++){
+        if(to_recv[i] == 0){
+            max = to_recv[i];
+            continue;
+        }
+        if(to_recv[i]!=max)
+            return 0;
+    }
+    return 1;
+}
+
+int continue_play(){
+
+    int total = check_total_count();
+    int tie = is_tie();
+
+    if(tie)
+        printf("GAME ENDED WITH A TIE\n");
+    
+    if(total == 1)
+        printf("GAME ENDED WITH A WINNER\n");
+
+    return(total>1 && !tie);
+
+}
 
 void play(){
 
-    while(check_total_count()>1){
+    while(continue_play()){
         move_step();
         eating_step();
     }
