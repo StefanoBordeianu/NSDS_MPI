@@ -172,8 +172,6 @@ void remove_node(struct node* node){
     node->prev->next = node->next;
     if(node->next!=NULL) 
        node->next->prev = node->prev;
-    //here just in case, but speed is not a pointed struct
-    //free(node->fish->speed);
     free(node->fish);
     free(node);
 }
@@ -218,7 +216,6 @@ void send_neighbor(){
     to_send = list_to_array(&len_to_send);
 
     //we first send the len of the buffer then the buffer
-
     int j = 0;
     for(int i = 0;i<ctx.number_of_neighbors;i++){
             MPI_Isend(&len_to_send,1, MPI_INT, ctx.neighbor_ranks[i], 0, MPI_COMM_WORLD, &req[j]);
@@ -231,11 +228,11 @@ void send_neighbor(){
     MPI_Waitall(j,req,stats);
 }
 
+//send the info of the adjacent fishes to the owners
 void send_adj(){
     MPI_Request req[ctx.number_of_neighbors*2];
 
     //we first send the len of the buffer then the buffer
-
     int j = 0;
     for(int i = 0;i<ctx.number_of_neighbors;i++){
             int rank = ctx.neighbor_ranks[i];
@@ -248,6 +245,7 @@ void send_adj(){
     MPI_Waitall(j,req,stats);
 }
 
+//receive from neighbors
 int recv_neighbor(){
 
     MPI_Request req[ctx.adjacent_to_consider];
@@ -261,7 +259,7 @@ int recv_neighbor(){
     MPI_Status stats[j];
     MPI_Waitall(j,req,stats);
 
-    //allocare gli array per dove ricevere e ricevere 
+    //allocate the arrays where to receive
     for(int i = 0;i<ctx.number_of_neighbors;i++){
         int size = ctx.adjacent_sizes[ctx.neighbor_ranks[i]];
         ctx.adjacent_list[ctx.neighbor_ranks[i]] = malloc(sizeof(struct fish) * size);
@@ -278,6 +276,9 @@ int recv_neighbor(){
     MPI_Waitall(j,req2,stats2);
 }
 
+
+//merges updates the local list based on the info received by the neighbors
+//it increses the size if the fish ate or removes it if it has been eaten
 void merge_neighbors(){
 
     struct node* cycle_local;
@@ -317,16 +318,9 @@ void eating_step(){
     struct node* current;
     current = ctx.fishes->next;
 
-    printf("%d-start eating\n",ctx.my_rank);
     send_neighbor();
-    printf("%d-finished sending\n",ctx.my_rank);
     recv_neighbor();
-    printf("%d-finished receiving\n",ctx.my_rank);
 
-    for(int i=0;i<ctx.number_of_neighbors;i++){
-        printf("%d-printing array received by rank %d size %d\n",ctx.my_rank,ctx.neighbor_ranks[i],ctx.adjacent_sizes[ctx.neighbor_ranks[i]]);
-        print_array(ctx.adjacent_list[ctx.neighbor_ranks[i]],ctx.adjacent_sizes[ctx.neighbor_ranks[i]]);
-    }
 
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -346,7 +340,6 @@ void eating_step(){
                 }
             cycle = cycle->next;
         }
-        //printf("%d-analyzed local\n",ctx.my_rank);
 
         //check adjacent lists
         for (int i=0; i<ctx.number_of_neighbors; i++){
@@ -362,59 +355,43 @@ void eating_step(){
                 }
             }    
         }
-        //printf("%d-analyzed neighbors\n",ctx.my_rank);
-
         current = current->next;
+
+        //if there is no fish eating go to next iteration
         if(biggest_local==NULL && biggest_non_local==NULL){
-            printf("%d-CONTINUING\n",ctx.my_rank);
             continue;
         }
 
-        //increase the size of the biggest eating fish 
+        //increase the size of the biggest eating fish, if tie local wins 
         if(biggest_non_local == NULL){
             biggest_local->fish->eating += 1;
-            printf("%d-A\n",ctx.my_rank);
         }
         else if(biggest_local == NULL){
             biggest_non_local->eating += 1;
-            printf("%d-B\n",ctx.my_rank);
         }
-        else{   
-            printf("%d-C\n",ctx.my_rank);     
+        else{       
             if(biggest_non_local->size > biggest_local->fish->size){
                 biggest_non_local->eating += 1;
-                printf("%d-increased non local\n",ctx.my_rank);
-                print_fish(*biggest_non_local,0);
             }
             else
                 biggest_local->fish->eating += 1;
         }
-        //printf("%d-set eating\n",ctx.my_rank);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
     free(current);
 
-    print_local();
-
     send_adj();
-    printf("%d-sent adj\n",ctx.my_rank);
     //free adjacent list
     for(int i = 0;i<ctx.number_of_neighbors;i++)
         free(ctx.adjacent_list[ctx.neighbor_ranks[i]]);
-    recv_neighbor();
-    printf("%d-recv neigh\n",ctx.my_rank);
-        for(int i=0;i<ctx.number_of_neighbors;i++){
-        printf("%d-printing array received by rank %d size %d\n",ctx.my_rank,ctx.neighbor_ranks[i],ctx.adjacent_sizes[ctx.neighbor_ranks[i]]);
-        print_array(ctx.adjacent_list[ctx.neighbor_ranks[i]],ctx.adjacent_sizes[ctx.neighbor_ranks[i]]);
-    }
     
+    recv_neighbor(); 
     merge_neighbors();
-    printf("%d-merged\n",ctx.my_rank);
+
     //free adjacent list
     for(int i = 0;i<ctx.number_of_neighbors;i++)
         free(ctx.adjacent_list[ctx.neighbor_ranks[i]]);
-    print_local();
 }
 
 //returns the slice resposable for the position of the fish
@@ -449,7 +426,7 @@ void move_step(){
     struct fish* to_send[ctx.world_size];
     int indexes[ctx.world_size];
     int sizes[ctx.world_size];
-    int starting_size = 20;
+    int starting_size = 25;
 
     for(int i=0; i<ctx.world_size; i++){
         to_send[i] = malloc(starting_size*sizeof(struct fish));
@@ -457,9 +434,6 @@ void move_step(){
         indexes[i] = 0;
     }
     
-    //DEBUG
-    printf("%d-start moving\n",ctx.my_rank);
-    print_local();
 
     //for each fish move it and check in which slice it ended up
     //if it ended up in a slice different from the local one 
@@ -484,15 +458,6 @@ void move_step(){
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    for(int i=0;i<ctx.world_size;i++){
-        if(i==ctx.my_rank)
-            continue;
-        //printf("%d-sending after move to rank %d: size to send:%d\n",ctx.my_rank,i,indexes[i]);
-        //print_array(to_send[i],indexes[i]);
-    }
-    //printf("%d-local before sending\n",ctx.my_rank);
-    //print_local();
-
     //send the to_send arrays to the others
     MPI_Request send_req[(ctx.world_size-2)*2];
     int j=0;
@@ -502,18 +467,11 @@ void move_step(){
             continue;
         MPI_Isend(&indexes[i] , 1 , MPI_INT , i , 0 , MPI_COMM_WORLD , &send_req[j]);
         j++;
-        //MPI_Isend(to_send[i] ,sizeof(struct fish) * indexes[i] , MPI_CHAR , i , 0 , MPI_COMM_WORLD , &send_req[j]);
         MPI_Isend(to_send[i] ,indexes[i] , type_fish , i , 0 , MPI_COMM_WORLD , &send_req[j]);
-        j++;
-        //printf("%d-First send: Sending to rank %d\n",ctx.my_rank,i);
-        //print_array(to_send[i],indexes[i]);
+        j++;;
     }
-    //printf("%d-First send\n",ctx.my_rank);
     MPI_Status stats[j];
     MPI_Waitall(j,send_req,stats);
-    
-    MPI_Barrier(MPI_COMM_WORLD);
-
 
     //receive the arrays from the other 
     MPI_Request recv_req[ctx.world_size-1];
@@ -527,18 +485,16 @@ void move_step(){
         MPI_Irecv(&to_recv_sizes[i],1 , MPI_INT , i , 0 , MPI_COMM_WORLD , &recv_req[j]);
         j++;
     }
-    //printf("%d-First Receive\n",ctx.my_rank);
     MPI_Status stats2[j];
     MPI_Waitall(j,recv_req,stats2);
-    //printf("%d-size received = %d %d\n",ctx.my_rank,to_recv_sizes[0],to_recv_sizes[1]);
 
+    //allocate the buffers where to receive according to the size that was just received
     for(int i=0;i<ctx.world_size;i++){
         //we skip our own rank
         if(i==ctx.my_rank)
             continue;
         to_recv[i] = malloc(sizeof(struct fish) * to_recv_sizes[i]);
     }
-    MPI_Barrier(MPI_COMM_WORLD);
 
     j=0;
     MPI_Request recv_req2[ctx.world_size-1];
@@ -546,25 +502,13 @@ void move_step(){
         //we skip our own rank
         if(i==ctx.my_rank)
             continue;
-        //MPI_Irecv(to_recv[i],sizeof(struct fish) * to_recv_sizes[i],MPI_CHAR, i , 0 , MPI_COMM_WORLD , &recv_req2[j]);
         MPI_Irecv(to_recv[i],to_recv_sizes[i],type_fish, i , 0 , MPI_COMM_WORLD , &recv_req2[j]);
         j++;
     }
     MPI_Status stats3[j];
     MPI_Waitall(j,recv_req2,stats3);
-    //printf("%d-Second Receive waited\n",ctx.my_rank);
     MPI_Barrier(MPI_COMM_WORLD);
-    
-    for(int i=0;i<ctx.world_size;i++){
-        if(i==ctx.my_rank)
-            continue;
-        //printf("%d-RECEIVED FROM RANK:%d\n",ctx.my_rank,i);
-        //print_array(to_recv[i],to_recv_sizes[i]);
-    }
-    //printf("%d-local before MERGING\n",ctx.my_rank);
-    //print_local();
 
-    
     //put the fishes received in the ctx.fishes list
     for(int i=0;i<ctx.world_size;i++){
         if(i==ctx.my_rank)
@@ -572,13 +516,10 @@ void move_step(){
         for(j=0;j<to_recv_sizes[i];j++){
             add(to_recv[i][j],ctx.fishes);
         }
-        //printf("%d-C\n",ctx.my_rank);
         if(to_recv_sizes[i]!=0)
             free(to_recv[i]);
-        //printf("%d-C2\n",ctx.my_rank);
         if(indexes[i]!=0)
             free(to_send[i]);
-        //printf("%d-C3\n",ctx.my_rank);
     }
     printf("%d-END MOVING\n",ctx.my_rank);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -622,6 +563,7 @@ int check_total_count(){
     return res;
 }
 
+//returns -1 if no tie, 0 if empty, size of the tied fish if tied
 int local_tie(){
     struct node* cycle;
     cycle = ctx.fishes->next;
@@ -679,12 +621,21 @@ int is_tie(){
 
     int max = 0;
     for(int i=0;i<ctx.world_size;i++){
-        if(to_recv[i] == 0){
-            max = to_recv[i];
-            continue;
+
+        if(to_recv[i]!=0){
+            if(to_recv[i] > 0){
+                if(max==0){
+                    max = to_recv[i];
+                    continue;
+                }
+                else{
+                    if(to_recv[i]!=max)
+                        return 0;
+                }
+            }
+            if(to_recv[i]==-1)
+                return 0;
         }
-        if(to_recv[i]!=max)
-            return 0;
     }
     return 1;
 }
@@ -694,22 +645,31 @@ int continue_play(){
     int total = check_total_count();
     int tie = is_tie();
 
-    if(tie)
+    if(tie){
         printf("GAME ENDED WITH A TIE\n");
-    
-    if(total == 1)
-        printf("GAME ENDED WITH A WINNER\n");
+       print_local();
+    }
+    else{
+        if(total == 1){
+            printf("GAME ENDED WITH A WINNER\n");
+            print_local();
+        }
+    }
 
     return(total>1 && !tie);
 
 }
 
 void play(){
+    int iteration = 0;
 
     while(continue_play()){
         move_step();
         eating_step();
+        iteration++;
     }
+    if(ctx.my_rank == 0)
+        printf("Number of iterations: %d\n",iteration);
 
 }
 
@@ -900,16 +860,12 @@ int main(int argc, char** argv) {
     parseArgs(argc,argv);
     printf("args parsed\n");
 
-    MPI_Barrier(MPI_COMM_WORLD);
     setup();
     printf("setup ended for process %d\n",ctx.my_rank);
     printf("num of neighbors %d\n",ctx.number_of_neighbors);
     MPI_Barrier(MPI_COMM_WORLD);
 
     play();
-
-
-
 
     // Finalize the MPI environment
     MPI_Finalize();
