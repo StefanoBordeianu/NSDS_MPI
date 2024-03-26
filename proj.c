@@ -426,7 +426,7 @@ void move_step(){
     struct fish* to_send[ctx.world_size];
     int indexes[ctx.world_size];
     int sizes[ctx.world_size];
-    int starting_size = 25;
+    int starting_size = 5;
 
     for(int i=0; i<ctx.world_size; i++){
         to_send[i] = malloc(starting_size*sizeof(struct fish));
@@ -620,12 +620,14 @@ int is_tie(){
 
 
     int max = 0;
+    int how_many_ties;
     for(int i=0;i<ctx.world_size;i++){
 
         if(to_recv[i]!=0){
             if(to_recv[i] > 0){
                 if(max==0){
                     max = to_recv[i];
+                    how_many_ties = 1;
                     continue;
                 }
                 else{
@@ -633,18 +635,25 @@ int is_tie(){
                         return 0;
                 }
             }
+            if(to_recv[i] == max){
+                how_many_ties++;
+                continue;
+            }
             if(to_recv[i]==-1)
                 return 0;
         }
     }
-    return 1;
+    if(how_many_ties > 1)
+        return 1;
+    else 
+        return 0;
 }
 
-int continue_play(){
+int continue_play(int total){
 
-    int total = check_total_count();
     int tie = is_tie();
 
+    //printf("%d- total BEFORE TIE %d\n",ctx.my_rank,total);
     if(tie){
         printf("GAME ENDED WITH A TIE\n");
        print_local();
@@ -660,13 +669,107 @@ int continue_play(){
 
 }
 
+int get_biggest_size(){
+    struct node* node = ctx.fishes->next;
+    if(node == NULL)
+        return -1;
+
+    return node->fish->size;
+}
+
+int get_smallest_size(){
+    struct node* node = ctx.fishes->next;
+    if(node == NULL)
+        return -1;
+
+    while(node->next!=NULL)
+        node = node->next;
+    
+    return node->fish->size;
+}
+
+void end_of_day(int iteration, int total){
+    int size_of_biggest = get_biggest_size();
+    int size_of_smallest = get_smallest_size();
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    if(ctx.my_rank==0){
+        printf("The number of fishes in the simulation at iteration %d is %d\n",iteration,total);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    if(ctx.my_rank==0){
+        MPI_Request recv_req[ctx.world_size-1];
+        int to_recv[ctx.world_size];
+        to_recv[ctx.my_rank] = size_of_biggest;
+        int max = 0;
+        int j=0;
+
+        for(int i=1;i<ctx.world_size;i++){
+            MPI_Irecv(&to_recv[i],1,MPI_INT,i,0,MPI_COMM_WORLD,&recv_req[j]);
+            j++;
+        }
+        MPI_Status stats[j];
+        MPI_Waitall(j,recv_req,stats);
+
+        for(int i=0;i<ctx.world_size;i++){
+            if(max<to_recv[i])
+                max = to_recv[i];
+        }
+        printf("The biggest size in simulation at iteration %d is %d\n",iteration,max);
+        size_of_biggest = max;
+    }
+    else{
+        MPI_Request req;
+        MPI_Isend(&size_of_biggest,1,MPI_INT,0,0,MPI_COMM_WORLD,&req);
+        MPI_Status stat;
+        MPI_Wait(&req,&stat);
+    }
+
+    if(ctx.my_rank==0){
+        MPI_Request recv_req[ctx.world_size-1];
+        int to_recv[ctx.world_size];
+        to_recv[ctx.my_rank] = size_of_smallest;
+        int min = size_of_biggest;
+        int j=0;
+
+        for(int i=1;i<ctx.world_size;i++){
+            MPI_Irecv(&to_recv[i],1,MPI_INT,i,0,MPI_COMM_WORLD,&recv_req[j]);
+            j++;
+        }
+        MPI_Status stats[j];
+        MPI_Waitall(j,recv_req,stats);
+
+        for(int i=0;i<ctx.world_size;i++){
+            if(min > to_recv[i] && (to_recv[i]!=-1))
+                min = to_recv[i];
+        }
+        printf("The smallest size in simulation at iteration %d is %d\n",iteration,min);
+    }
+    else{
+        MPI_Request req;
+        MPI_Isend(&size_of_smallest,1,MPI_INT,0,0,MPI_COMM_WORLD,&req);
+        MPI_Status stat;
+        MPI_Wait(&req,&stat);
+    }
+    
+}
+
 void play(){
     int iteration = 0;
+    int total = check_total_count();
 
-    while(continue_play()){
+    printf("%d- starting the game\n",ctx.my_rank);
+    while(continue_play(total)){
+        MPI_Barrier(MPI_COMM_WORLD);
         move_step();
+        MPI_Barrier(MPI_COMM_WORLD);
         eating_step();
+        MPI_Barrier(MPI_COMM_WORLD);
         iteration++;
+        total = check_total_count();
+        MPI_Barrier(MPI_COMM_WORLD);
+        end_of_day(iteration,total);
     }
     if(ctx.my_rank == 0)
         printf("Number of iterations: %d\n",iteration);
